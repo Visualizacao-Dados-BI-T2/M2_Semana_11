@@ -307,3 +307,240 @@ if df_filtrado.empty: # validando se o dataframe filtrado está vazio
         "Nenhum dado encontrado para o período ou ticker selecionado. Tente expandir o intervalo de datas ou mudar o ticker selecionado."
     )
     st.stop()
+
+# ==============================================================================
+# 📊 [AULA 03] ENGENHARIA VISUAL (KPIS, PLOTLY) & ESTRUTURA PARA DEPLOY CLOUD
+# ==============================================================================
+# Conceitos da Aula 3:
+# 1. Indicadores de Performance (KPIs) com st.columns e st.metric
+# 2. Visualização analítica rica com Plotly Express (Linhas, Base 100, Barras de Volume)
+# 3. Organização do Dashboard em Abas (st.tabs) e exportação de dados (st.download_button)
+# 4. Estrutura profissional de versionamento e Deploy no Streamlit Community Cloud
+# ==============================================================================
+
+# Cabeçalho da Aplicação e Resumo do Filtro Ativo
+st.title("📈 Performance de Ações B3")
+st.markdown(
+    f"Exibindo **{len(tickers_selecionados)} ativo(s)** ({', '.join(tickers_selecionados)}) "
+    f"entre **{d_inicio.strftime('%d/%m/%Y')}** e **{d_fim.strftime('%d/%m/%Y')}**."
+)
+
+col1, col2, col3, col4 = st.columns(4) # criando as "colunas" de kpis
+
+volume_total = df_filtrado["volume"].sum() # 1° kpi - soma de volume negociado
+preco_medio = df_filtrado["preco_fechamento"].mean() # 2° kpi - média de preço fechamento
+maior_alta = df_filtrado["preco_fechamento"].max() # 3° kpi - maior preço de fechamento
+menor_baixa = df_filtrado["preco_fechamento"].min() # 4° kpi - menor preço de fechamento
+
+with col1:
+    # Formatação de volume inteligente (Bilhões / Milhões / Milhares)
+    if volume_total >= 1e9: # formatacao de volume inteligente
+        vol_str = f"{volume_total / 1e9:.2f} B" # convertendo para bilhões
+    elif volume_total >= 1e6: # formatacao de volume inteligente
+        vol_str = f"{volume_total / 1e6:.1f} M" # convertendo para milhões
+    else:
+        vol_str = f"{volume_total:,.0f}" # convertendo para milhares
+    st.metric(label="Volume Total Negociado", value=vol_str)
+
+
+with col2:
+    st.metric(label="Preço Médio no Período", value=f"R$ {preco_medio:,.2f}")
+
+with col3:
+    st.metric(label="Cotação Máxima", value=f"R$ {maior_alta:,.2f}")
+
+with col4:
+    st.metric(label="Cotação Mínima", value=f"R$ {menor_baixa:,.2f}")
+
+st.markdown("---")
+
+
+# ==============================================================================
+# ABAS DE VISUALIZAÇÃO INTERATIVA
+# ==============================================================================
+tab_graficos, tab_tabela, tab_teoria = st.tabs(
+    [
+        "📈 Análise Gráfica Interativa",
+        "📋 Tabela de Dados & Exportação",
+        "🎓 Conceitos Pedagógicos da Aula",
+    ]
+)
+
+# Paleta de cores moderna e distinta
+PALETA_CORES = [
+    "#10B981",
+    "#3B82F6",
+    "#F59E0B",
+    "#EF4444",
+    "#8B5CF6",
+    "#EC4899",
+    "#06B6D4",
+    "#84CC16",
+]
+
+with tab_graficos:
+    # 1. GRÁFICO PRINCIPAL DE PREÇOS
+    if modo_comparativo:
+        st.markdown("### 🚀 Rentabilidade Relativa Normalizada (Base 100)")
+        st.caption(
+            "Cada ativo inicia em 100 na primeira data do período. Valores acima de 100 indicam ganho percentual."
+        )
+
+        # Cria cópia ordenada para cálculo da base 100
+        df_norm = df_filtrado.sort_values(by=["ticker", "data"]).copy()
+        df_norm["base_100"] = df_norm.groupby("ticker")["preco_fechamento"].transform(
+            lambda x: (x / x.iloc[0]) * 100 if x.iloc[0] > 0 else 100
+        )
+
+        fig_preco = px.line(
+            df_norm,
+            x="data",
+            y="base_100",
+            color="ticker",
+            color_discrete_sequence=PALETA_CORES,
+            labels={
+                "base_100": "Desempenho (Base 100)",
+                "data": "Data",
+                "ticker": "Ativo",
+            },
+        )
+        fig_preco.add_hline(
+            y=100,
+            line_dash="dash",
+            line_color="#9CA3AF",
+            annotation_text="Ponto de Entrada (100)",
+        )
+        fig_preco.update_traces(
+            hovertemplate="<b>%{fullData.name}</b><br>Data: %{x|%d/%m/%Y}<br>Desempenho: %{y:.2f} pts<extra></extra>",
+            line=dict(width=2.5),
+        )
+
+    else:
+        st.markdown("### 💰 Histórico do Preço de Fechamento (R$)")
+        fig_preco = px.line(
+            df_filtrado,
+            x="data",
+            y="preco_fechamento",
+            color="ticker",
+            color_discrete_sequence=PALETA_CORES,
+            log_y=escala_log,
+            labels={
+                "preco_fechamento": "Cotação (R$)",
+                "data": "Data",
+                "ticker": "Ativo",
+            },
+        )
+        fig_preco.update_traces(
+            hovertemplate="<b>%{fullData.name}</b><br>Data: %{x|%d/%m/%Y}<br>Cotação: R$ %{y:,.2f}<extra></extra>",
+            line=dict(width=2.5),
+        )
+
+    # Layout elegante: Legenda no topo sem sobreposição, grid suave
+    fig_preco.update_layout(
+        template="plotly_dark",
+        hovermode="x unified",
+        paper_bgcolor="rgba(0,0,0,0)",
+        plot_bgcolor="rgba(14,17,23,0.6)",
+        margin=dict(l=10, r=10, t=30, b=10),
+        height=480,
+        legend=dict(
+            orientation="h",
+            yanchor="bottom",
+            y=1.02,
+            xanchor="center",
+            x=0.5,
+            title=None,
+            font=dict(size=12),
+        ),
+        xaxis=dict(showgrid=True, gridcolor="#1F2937", title=None),
+        yaxis=dict(showgrid=True, gridcolor="#1F2937", title=None),
+    )
+    st.plotly_chart(fig_preco, use_container_width=True)
+
+    # 2. GRÁFICO DE VOLUME / LIQUIDEZ
+    st.markdown("### 📊 Volume de Negociação")
+    fig_vol = px.bar(
+        df_filtrado,
+        x="data",
+        y="volume",
+        color="ticker",
+        color_discrete_sequence=PALETA_CORES,
+        barmode="group",
+        labels={"volume": "Volume de Ações", "data": "Data", "ticker": "Ativo"},
+    )
+    fig_vol.update_traces(
+        hovertemplate="<b>%{fullData.name}</b><br>Data: %{x|%d/%m/%Y}<br>Volume: %{y:,.0f}<extra></extra>"
+    )
+    fig_vol.update_layout(
+        template="plotly_dark",
+        paper_bgcolor="rgba(0,0,0,0)",
+        plot_bgcolor="rgba(14,17,23,0.6)",
+        margin=dict(l=10, r=10, t=30, b=10),
+        height=320,
+        legend=dict(
+            orientation="h",
+            yanchor="bottom",
+            y=1.02,
+            xanchor="center",
+            x=0.5,
+            title=None,
+        ),
+        xaxis=dict(showgrid=True, gridcolor="#1F2937", title=None),
+        yaxis=dict(showgrid=True, gridcolor="#1F2937", title=None),
+    )
+    st.plotly_chart(fig_vol, use_container_width=True)
+
+
+
+with tab_tabela:
+    st.subheader("Base de Cotações Filtrada")
+    st.markdown("Consulte e baixe os dados resultantes dos filtros aplicados.")
+
+    st.dataframe(
+        df_filtrado,
+        column_config={
+            "data": st.column_config.DateColumn("Data", format="DD/MM/YYYY"),
+            "preco_fechamento": st.column_config.NumberColumn(
+                "Preço Fechamento", format="R$ %.2f"
+            ),
+            "volume": st.column_config.NumberColumn("Volume Negociado", format="%d"),
+            "ticker": st.column_config.TextColumn("Ativo (Ticker)"),
+        },
+        use_container_width=True,
+        hide_index=False,
+        height=420,
+    )
+
+    csv_bytes = df_filtrado.to_csv(index=False).encode("utf-8")
+    st.download_button(
+        label="📥 Baixar Dados Filtrados em CSV",
+        data=csv_bytes,
+        file_name=f"cotacoes_b3_filtradas_{date.today()}.csv",
+        mime="text/csv",
+        use_container_width=True,
+    )
+
+# ==============================================================================
+# 🎓 ABA 3: LABORATÓRIO PEDAGÓGICO & EXERCÍCIOS PRÁTICOS (SEMANA 11)
+# ==============================================================================
+
+with tab_teoria:
+    st.subheader("🎓 Laboratório Pedagógico & Conceitos das Aulas")
+    st.markdown(
+        "Esta seção reúne os exercícios conceituais e práticas guiadas apresentadas nos slides da Semana 11."
+    )
+
+    # --------------------------------------------------------------------------
+    # RESUMO DA AULA 3: CHECKLIST DE DEPLOY EM PRODUÇÃO (Slide 39)
+    # --------------------------------------------------------------------------
+    st.markdown("---")
+    st.markdown(
+        "### ☁️ Checklist da Aula 3: Requisitos do Desafio Final (Slide 39)"
+    )
+    st.markdown("""
+    1. ✅ **Conexão Resiliente:** PostgreSQL na nuvem (Supabase) com fallback automático para CSV local.
+    2. ✅ **Painel com Filtros Cruzados:** Barra lateral (`st.sidebar`) com seleção múltipla, período de datas e escala.
+    3. ✅ **Performance & Cache:** Consultas protegidas com `@st.cache_data(ttl=600)` e estado com `st.session_state`.
+    4. ✅ **Visualizações Interativas:** Gráficos em Plotly (Cotação Histórica, Base 100 e Volume) e KPIs em colunas (`st.metric`).
+    5. ✅ **Deploy em Produção:** Repositório no GitHub integrado ao Streamlit Community Cloud com Secrets gerenciadas na nuvem.
+    """)
